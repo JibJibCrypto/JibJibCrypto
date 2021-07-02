@@ -1,0 +1,182 @@
+//----1.Input Variables EMA with ADX----\\
+strategy("JIBCRYPTO-EMA-ADX" , overlay=true , default_qty_type=strategy.cash, default_qty_value=25, currency = currency.USD , initial_capital = 1000 , commission_type = strategy.commission.percent,commission_value = 0.02)
+startyear = input(defval = 2020, title = "Start Year")
+startmonth = input(defval = 1, title = "Start Month")
+startday = input(defval = 1, title = "Start day")
+//default_qty_type=strategy.percent_of_equity
+
+ema_fast = input( title = "EMA_fast" , type = input.integer , defval = 5 , group = "EMA CONFIG")
+ema_slow = input( title = "EMA_slow" , type = input.integer , defval = 27 , group = "EMA CONFIG")
+ema_trend = input( title = "EMA_trend" , type = input.integer , defval = 45 , group = "EMA CONFIG")
+
+adxlen = input(title="Length", type=input.integer, defval=14 , group = "ADX CONFIG")
+th = input(title="threshold", type=input.integer, defval=20 , group = "ADX CONFIG" )
+dilen = input(title="DI Length", type=input.integer, defval=14 , group = "ADX CONFIG")
+
+line_len = input(title="Count", defval=4)
+
+//----2.Calculate EMA and ADX----\\
+//----2.1 Calculate EMA ----\\
+EMA_fast = ema(close,ema_fast)
+EMA_slow = ema(close,ema_slow)
+EMA_trend = ema(close,ema_trend)
+
+//----2.1 Calculate ADX ----\\
+dirmov(len) =>
+	up = change(high)
+	down = -change(low)
+	plusDM = na(up) ? na : (up > down and up > 0 ? up : 0)
+    minusDM = na(down) ? na : (down > up and down > 0 ? down : 0)
+	truerange = rma(tr, len)
+	
+	plus = fixnan(100 * rma(plusDM, len) / truerange)
+	minus = fixnan(100 * rma(minusDM, len) / truerange)
+
+	[plus, minus]
+
+adx(dilen, adxlen) =>
+	[plus, minus] = dirmov(dilen)
+	sum = plus + minus
+	adx = 100 * rma(abs(plus - minus) / (sum == 0 ? 1 : sum), adxlen)
+
+	
+[plus, minus] = dirmov(dilen)
+sig = adx(dilen, adxlen)
+
+plot(plus, color = color.green, title="plusDI")
+plot(minus, color = color.red, title="minusDI")
+plot(sig, color=color.white, title="ADX")
+hline(th, color=color.white, linestyle = hline.style_dashed)
+
+//3.
+// Calculate Slope of ADX , DIPlus , DIMinus by Timeframe change (count bar back 4 bars ago -use in TF=30)
+//extend = extendLines ? extend.right : extend.none
+// 3.1 Cal Slope ADX -change ADX value per tf = 30 min
+slope_Adx = 0.0
+deltaAdxbytf = 0.0
+calcSlopeAdx(adx, line_len) =>
+    if not barstate.islast or line_len <= 1
+        [float(na)]
+    else
+        sumX_Adx = 0.0
+        sumY_Adx = 0.0
+        sumXSqr_Adx = 0.0
+        sumXY_Adx = 0.0
+        //average_Adx = 0.0
+        //intercept_Adx = 0.0
+        for i = 0 to line_len - 1
+            val_Adx = adx[i]
+            per_Adx = i + 1.0
+            sumX_Adx  := sumX_Adx  + per_Adx
+            sumY_Adx  := sumY_Adx + val_Adx
+            sumXSqr_Adx := sumXSqr_Adx + per_Adx * per_Adx
+            sumXY_Adx := sumXY_Adx + val_Adx * per_Adx
+        slop_Adx = (line_len * sumXY_Adx - sumX_Adx * sumY_Adx)/(line_len * sumXSqr_Adx - sumX_Adx * sumX_Adx)
+           
+        [ slop_Adx ]
+
+
+deltaAdxbytf := slope_Adx/line_len
+
+// 3.2 Cal Slope -DIPlus -change DIPlus value per tf = 30 min
+deltaDIPlusbytf = 0.0 
+slope_dpl = 0.0
+calcSlopeDIPlus(plus, line_len) =>
+    if not barstate.islast or line_len <= 1
+        [float(na)]
+    else
+        sumX_dip = 0.0
+        sumY_dip = 0.0
+        sumXSqr_dip = 0.0
+        sumXY_dip = 0.0    
+        for i = 0 to line_len - 1
+            val_dip = plus[i]
+            per_dip = i + 1.0
+            sumX_dip  := sumX_dip  + per_dip
+            sumY_dip  := sumY_dip + val_dip
+            sumXSqr_dip := sumXSqr_dip + per_dip * per_dip
+            sumXY_dip := sumXY_dip + val_dip * per_dip
+        slope_dpl == (line_len * sumXY_dip - sumX_dip * sumY_dip)/(line_len * sumXSqr_dip - sumX_dip * sumX_dip)
+        //average_dip = sumY_dip / line_len
+        //intercept_dip = average_dip - slope_dip * sumX_dip / line_len + slope_dip    
+        [slope_dpl]  
+
+ 
+deltaDIPlusbytf := slope_dpl/line_len 
+
+// 3.3 Cal Slope -DIMinus -change DIMinus value per tf = 30 min
+slope_dim = 0.0
+deltaDIMinusbytf = 0.0 
+calcSlopeDIMinus(minus, line_len) =>
+    if not barstate.islast or line_len <= 1
+        [float(na)]
+    else
+        sumX_dim = 0.0
+        sumY_dim = 0.0
+        sumXSqr_dim = 0.0
+        sumXY_dim = 0.0 
+        for i = 0 to line_len - 1
+            val_dim = minus[i]
+            per_dim = i + 1.0
+            sumX_dim  := sumX_dim  + per_dim
+            sumY_dim  := sumY_dim + val_dim
+            sumXSqr_dim := sumXSqr_dim + per_dim * per_dim
+            sumXY_dim := sumXY_dim + val_dim * per_dim
+        slope_dim == (line_len * sumXY_dim - sumX_dim * sumY_dim)/(line_len * sumXSqr_dim - sumX_dim * sumX_dim)
+        //average_dim = sumY_dim / line_len
+        //intercept_dim = average_dim - slope_dim * sumX_dim / line_len + slope_dim    
+        [slope_dim]  
+        
+        
+deltaDIMinusbytf := slope_dim/line_len
+        
+//4 Check Signals from Trend or Non-Trend (Sideway) 
+
+deltaDI = 0.0
+deltaDI := deltaDIPlusbytf - deltaDIMinusbytf
+
+entrySignals = abs(deltaAdxbytf) < 4.0 or abs(deltaDIPlusbytf) < 4.0 or abs(deltaDIMinusbytf) < 4.0 or abs(deltaDI) < 2.0  ? "NONE" : "ENTRY"
+exitSignalsLong = crossunder(EMA_fast ,EMA_slow) and close > EMA_trend ? "EXIT_LONG" : "NON-EXIT_L"
+exitSignalsShort = crossover(EMA_fast ,EMA_slow) and close < EMA_trend ? "EXIT_SHORT" : "NON-EXIT_S"
+
+//5.Position Entry-Exit
+// 5.1 LONG POSITION
+EACH_LOT = input( defval = 4 , title = "LOTS qty" , type = input.integer , group = "POSITION CONFIG" )
+LEVERAGE = input( defval = 10 , title = "Leverage" , type = input.integer , group = "POSITION CONFIG"  )
+POSITION_SIZE = (strategy.equity/EACH_LOT) * LEVERAGE
+CONTRACT_SIZE = round(POSITION_SIZE/close,6)
+//plotchar(CAL_POSITION_SIZE , "CAL_POSITION_SIZE")
+//plotchar(CONTRACT_SIZE , "CONTRACT_SIZE")
+
+// Configure trail stop level with input options (optional)
+longTrailPerc = input(title="Trail Long Loss (%)",type=input.float, minval=0.2, step=0.1, defval=3) * 0.01
+shortTrailPerc = input(title="Trail Short Loss (%)",type=input.float, minval=0.2, step=0.1, defval=3) * 0.01
+if (crossover(EMA_fast ,EMA_slow)) and  entrySignals == "ENTRY"     
+    strategy.close("SX" , alert_message = "CLOSE SHORT")
+    longStopPrice = 0.0
+    longStopPrice := if (strategy.position_size > 0)
+        stopValue = close * (1 - longTrailPerc)
+        max(stopValue, longStopPrice[1])
+    else
+        0
+    strategy.entry(id="LE", long = true , qty = CONTRACT_SIZE ,stop = longStopPrice, alert_message = "OPEN LONG")
+    
+    if exitSignalsLong == "EXIT_LONG" and (strategy.position_size > 0) 
+        strategy.exit(id="LX",from_entry = "LE" , stop = longStopPrice)
+    
+// when ,limit    
+// 5.2 SHORT POSITION
+if (crossunder(EMA_fast ,EMA_slow)) and  entrySignals == "ENTRY"    
+    strategy.close("LX" , alert_message = "CLOSE LONG")
+    shortStopPrice = 0.0
+    shortStopPrice := if (strategy.position_size < 0)
+        stopValue = close * (1 + shortTrailPerc)
+        min(stopValue, shortStopPrice[1])
+    else
+        999999
+    strategy.entry(id="SE", long = false , qty = CONTRACT_SIZE ,stop = shortStopPrice, alert_message ="OPEN SHORT")
+        
+    if exitSignalsShort == exitSignalsShort and (strategy.position_size < 0)
+        strategy.exit(id="SX",from_entry = "SE" , stop = shortStopPrice)
+
+
