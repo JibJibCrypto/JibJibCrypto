@@ -1,0 +1,89 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © jpdcrypto
+//@version=4
+strategy("MOM_SQZ SCALPING JIB", overlay = true, default_qty_type=strategy.cash, default_qty_value=25, currency = currency.USD,initial_capital = 1000 , commission_type = strategy.commission.percent,commission_value = 0.02)
+
+startDate = input(defval = timestamp("01 Jan 2018 00:00"), title = "Start Date", type=input.time)
+endDate = input(defval =timestamp("31 Jun 2021 00:00"), title = "End Date", type=input.time)
+
+_src = input(title = "Source", defval=close)
+ma_Fast = input(title = "EMA Fast", defval=8)
+ma_Middle = input(title = "EMA Middle", defval=25)
+ma_Slow = input(title = "EMA Slow", defval=50)
+
+lengthATR = input(title="Length", defval=8, minval=1)
+smoothing = input(title="Smoothing", defval="RMA", options=["RMA", "SMA", "EMA", "WMA"])
+
+lengthMOM = input(20, title="BB Length")
+mult = input(2.0,title="BB MultFactor")
+lengthKC=input(20, title="KC Length")
+multKC = input(1.5, title="KC MultFactor")
+
+useTrueRange = input(true, title="Use TrueRange (KC)", type=input.bool)
+
+//-----Calculattions
+//EMA
+MA_fast = ema(_src , ma_Fast)
+MA_middle = ema(_src , ma_Middle)
+MA_slow = ema(_src , ma_Slow)
+
+plot(MA_fast, color=color.red, linewidth = 2)
+plot(MA_middle, color=color.green, linewidth = 2)
+plot(MA_slow, color=color.blue, linewidth = 2)
+
+//ATR
+ma_function(_src, lengthATR) =>
+	if smoothing == "RMA"
+		rma(_src, lengthATR)
+	else
+		if smoothing == "SMA"
+			sma(_src, lengthATR)
+		else
+			if smoothing == "EMA"
+				ema(_src, lengthATR)
+			else
+				wma(_src, lengthATR)
+plot(ma_function(tr(true), lengthATR), title = "ATR", color=#991515, transp=0 , overlay = false)
+
+//SQZMOM_LB
+// Calculate BB
+basis = sma(_src, lengthMOM)
+dev = multKC * stdev(_src, lengthMOM)
+upperBB = basis + dev
+lowerBB = basis - dev
+
+// Calculate KC
+ma = sma(_src, lengthKC)
+range = useTrueRange ? tr : (high - low)
+rangema = sma(range, lengthKC)
+upperKC = ma + rangema * multKC
+lowerKC = ma - rangema * multKC
+
+sqzOn  = (lowerBB > lowerKC) and (upperBB < upperKC)
+sqzOff = (lowerBB < lowerKC) and (upperBB > upperKC)
+noSqz  = (sqzOn == false) and (sqzOff == false)
+
+val = linreg(_src  -  avg(avg(highest(high, lengthKC), lowest(low, lengthKC)),sma(close,lengthKC)),lengthKC,0)
+
+bcolor = iff( val > 0,iff( val > nz(val[1]), color=color.lime, color=color.green),iff( val < nz(val[1]), color=color.red, color=color.maroon))
+scolor = noSqz ? color.blue : scolor=sqzOn ? color.black : color.gray 
+plot(val, bcolor, style=histogram, linewidth=4 , overlay = false)
+plot(0,scolor, style=cross, linewidth=2 , overlay = false)
+
+//Alligator
+smma(_src, lengthA) =>
+	smma =  0.0
+	smma := na(smma[1]) ? sma(_src, lengthA) : (smma[1] * (lengthA - 1) + _src) / lengthA
+	smma
+jawLength = input(13, minval=1, title="Jaw Length")
+teethLength = input(8, minval=1, title="Teeth Length")
+lipsLength = input(5, minval=1, title="Lips Length")
+jawOffset = input(8, title="Jaw Offset")
+teethOffset = input(5, title="Teeth Offset")
+lipsOffset = input(3, title="Lips Offset")
+jaw = smma(hl2, jawLength)
+teeth = smma(hl2, teethLength)
+lips = smma(hl2, lipsLength)
+plot(jaw, "Jaw", offset = jawOffset, color=#3BB3E4 , overlay = false)
+plot(teeth, "Teeth", offset = teethOffset, color=#FF006E , overlay = false)
+plot(lips, "Lips", offset = lipsOffset, color=#36C711 , overlay = false)
